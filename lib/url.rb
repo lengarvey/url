@@ -1,13 +1,13 @@
-require "uri"
+require 'uri'
 
 module URI
-  class RFC3986_Parser
-    RFC33986_URI_SPLIT = Regexp.new '\A(([^:/?#]+):)?(//([^/?#]*))?([^?#]*)(\?([^#]*))?(#(.*))?\z'
+  class RFC3986_Parser # :nodoc:
+    # Non validating splitting regular expression for RFC3986
+    RFC3986_URI_SPLIT = Regexp.new '\A(([^:/?#]+):)?(//([^/?#]*))?([^?#]*)(\?([^#]*))?(#(.*))?\z'
+    QUERY_RESERVED = /[\[\] \/!'()\*%]/
 
-    QUERY_RESERVED = /[\[\] \/]/
-
-    def safe_split(uri)
-      uri =~ RFC33986_URI_SPLIT
+    def non_validating_split(uri) #:nodoc:
+      uri =~ RFC3986_URI_SPLIT
 
       scheme    = $2
       authority = $4
@@ -18,15 +18,7 @@ module URI
       [scheme, authority, path, query, fragment]
     end
 
-    def escape(uri)
-      scheme, authority, path, query, fragment = safe_split(uri)
-      query.gsub!(QUERY_RESERVED) { percent_encode($&) }
-      "#{scheme}://#{authority}#{path}?#{query}##{fragment}"
-    end
-
-    private
-
-    def percent_encode(str)
+    def percent_encode(str) # :nodoc:
       tmp = ''
       str.each_byte do |uc|
         tmp << sprintf('%%%02X', uc)
@@ -34,5 +26,37 @@ module URI
       tmp
     end
 
-  end
-end
+    def parse(uri, retry_parse = true) # :nodoc:
+      begin
+        scheme, userinfo, host, port,
+          registry, path, opaque, query, fragment = self.split(uri)
+
+        if scheme && URI.scheme_list.include?(scheme.upcase)
+          URI.scheme_list[scheme.upcase].new(scheme, userinfo, host, port,
+                                             registry, path, opaque, query,
+                                             fragment, self)
+        else
+          Generic.new(scheme, userinfo, host, port,
+                      registry, path, opaque, query,
+                      fragment, self)
+        end
+      rescue URI::InvalidURIError => e
+        if retry_parse
+          parse(naive_escape(uri), false)
+        else
+          raise
+        end
+      end
+    end
+
+    private
+
+    # will only attempt to escape the query string
+    def naive_escape(uri) # :nodoc: #
+      scheme, authority, path, query, fragment = non_validating_split(uri)
+      query.gsub!(QUERY_RESERVED) { percent_encode($&) }
+      "#{scheme}://#{authority}#{path}?#{query}##{fragment}"
+    end
+
+  end # class Parser
+end # module URI
